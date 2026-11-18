@@ -1,0 +1,40 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": { "major": 3, "minor": 21, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "vcpkg",
+      "hidden": true,
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+      "cacheVariables": { "VCPKG_MANIFEST_MODE": "OFF" }
+    },
+    {
+      "name": "macos-xcode",
+      "displayName": "macOS - Xcode project",
+      "description": "Generates build/macos-xcode/TotalMixAccess.xcodeproj",
+      "inherits": "vcpkg",
+      "generator": "Xcode",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" }
+    },
+    {
+      "name": "windows-vs2022",
+      "displayName": "Windows - Visual Studio 2022 (x64)",
+      "description": "Generates build/windows-vs2022/TotalMixAccess.sln",
+      "inherits": "vcpkg",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" }
+    }
+  ],
+  "buildPresets": [
+    { "name": "macos-debug",     "configurePreset": "macos-xcode",    "configuration": "Debug" },
+    { "name": "macos-release",   "configurePreset": "macos-xcode",    "configuration": "Release" },
+    { "name": "windows-debug",   "configurePreset": "windows-vs2022", "configuration": "Debug" },
+    { "name": "windows-release", "configurePreset": "windows-vs2022", "configuration": "Release" }
+  ],
+  "testPresets": [
+    { "name": "macos-tests",   "configurePreset": "macos-xcode",    "configuration": "Debug", "output": { "outputOnFailure": true } },
+    { "name": "windows-tests", "configurePreset": "windows-vs2022", "configuration": "Debug", "output": { "outputOnFailure": true } }
+  ]
+}
