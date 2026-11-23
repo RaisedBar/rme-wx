@@ -178,6 +178,12 @@ void MixerPanel::setBankSize(int bankSize) {
     applyRow();
 }
 
+std::vector<wxString> MixerPanel::stripNames() const {
+    std::vector<wxString> out;
+    for (const auto& s : strips_) out.push_back(s->name);
+    return out;
+}
+
 wxString MixerPanel::displayName(const Strip& s) const {
     return s.name.empty() ? wxString::Format("Channel %d", s.n) : s.name;
 }

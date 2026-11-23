@@ -32,6 +32,8 @@ public:
     void selectRow(int row);
     int row() const { return bus_->row(); }
     void takeFocus();
+    // Channel names of the strips in the bank shown (empty where TotalMix sent none).
+    std::vector<wxString> stripNames() const;
     // Level of the strip that contains 'focus' (empty if the focus is not in a strip).
     wxString levelSummary(const wxWindow* focus) const;
 

@@ -51,7 +51,7 @@
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>ws2_32.lib;oleacc.lib;uiautomationcore.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>ws2_32.lib;oleacc.lib;uiautomationcore.lib;winmm.lib;sapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -67,7 +67,7 @@
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>ws2_32.lib;oleacc.lib;uiautomationcore.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>ws2_32.lib;oleacc.lib;uiautomationcore.lib;winmm.lib;sapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
     </Link>
@@ -84,6 +84,8 @@
     <ClCompile Include="ChangeAnnouncer.cpp" />
     <ClCompile Include="Accessibility_msw.cpp" />
     <ClCompile Include="Announce_msw.cpp" />
+    <ClCompile Include="VoiceInput_msw.cpp" />
+    <ClCompile Include="VoiceSettingsDialog.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="App.h" />
@@ -97,6 +99,8 @@
     <ClInclude Include="ChangeAnnouncer.h" />
     <ClInclude Include="AppContext.h" />
     <ClInclude Include="Accessibility.h" />
+    <ClInclude Include="VoiceInput.h" />
+    <ClInclude Include="VoiceSettingsDialog.h" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="TotalMixAccess.rc" />

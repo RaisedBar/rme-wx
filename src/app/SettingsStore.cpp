@@ -16,6 +16,7 @@
 //   <Mixer bankSize="8"/>                         <!-- 1 to 24 -->
 //   <Log incoming="1" levels="0"/>
 //   <Announcements debounceSeconds="0.05"/>      <!-- 0 to 5 seconds -->
+//   <Voice enabled="0" wakeWord="TotalMix" minConfidence="0.5" device=""/>
 // </TotalMixAccess>
 
 namespace {
@@ -98,6 +99,14 @@ bool SettingsStore::load(Settings& out, wxString& error) {
         if (a->GetAttribute("debounceSeconds").Trim().Trim(false).ToCDouble(&v) && v >= 0 &&
             v <= Settings::kMaxDebounceSeconds)
             s.announceDebounceSeconds = v;
+    if (wxXmlNode* voice = findChild(root, "Voice")) {
+        attrBool(voice, "enabled", s.voiceEnabled);
+        const wxString wake = voice->GetAttribute("wakeWord").Trim().Trim(false);
+        if (!wake.empty()) s.wakeWord = wake;
+        if (voice->GetAttribute("minConfidence").Trim().Trim(false).ToCDouble(&v) && v >= 0 && v <= 1)
+            s.voiceMinConfidence = v;
+        s.voiceDevice = voice->GetAttribute("device").Trim().Trim(false);
+    }
     out = s;
     return true;
 }
@@ -127,6 +136,13 @@ bool SettingsStore::save(const Settings& in, wxString& error) {
     log->AddAttribute("levels", in.logLevels ? "1" : "0");
     addComment(root, " Seconds to wait after the last change from TotalMix FX before announcing it (0 to 5). ");
     addElement(root, "Announcements")->AddAttribute("debounceSeconds", wxString::FromCDouble(in.announceDebounceSeconds));
+    addComment(root, " Voice control: wake word, minimum recognition confidence (0 to 1), microphone name (empty = "
+                     "any headset). ");
+    wxXmlNode* voice = addElement(root, "Voice");
+    voice->AddAttribute("enabled", in.voiceEnabled ? "1" : "0");
+    voice->AddAttribute("wakeWord", in.wakeWord);
+    voice->AddAttribute("minConfidence", wxString::FromCDouble(in.voiceMinConfidence));
+    voice->AddAttribute("device", in.voiceDevice);
 
     // Write to a temporary file and rename, so an interrupted save cannot corrupt the file.
     wxLogNull quiet;

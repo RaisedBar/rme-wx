@@ -10,6 +10,8 @@
 #include "PagePanel.h"
 #include "Params.h"
 #include "PortCheck.h"
+#include "VoiceCommand.h"
+#include "VoiceSettingsDialog.h"
 
 namespace {
 enum {
@@ -32,7 +34,12 @@ enum {
     ID_ShowLog,
     ID_ClearLog,
     ID_Shortcuts,
+    ID_VoiceToggle,
+    ID_VoiceLearn,
+    ID_VoiceSettings,
+    ID_VoiceCommands,
 };
+constexpr int64_t kVoiceQuietMs = 1000;  // after a voice command, while TotalMix re-sends the page
 const char* kAppTitle = "TotalMix Access";
 constexpr int64_t kQuietMs = 1500;
 const char* const kPageNames[4] = {"Mixer", "Channel Settings", "FX and Snapshots", "Room EQ"};
@@ -41,7 +48,9 @@ int64_t nowMs() { return wxGetLocalTimeMillis().GetValue(); }
 }  // namespace
 
 MainFrame::MainFrame()
-    : wxFrame(nullptr, wxID_ANY, kAppTitle, wxDefaultPosition, wxSize(1280, 860)), announcer_(this), timer_(this) {
+    : wxFrame(nullptr, wxID_ANY, kAppTitle, wxDefaultPosition, wxSize(1280, 860)), announcer_(this),
+      timer_(this),
+      seq_([this](const rme::OscMessage& m) { send(m); }) {
     {
         const int d = wxDisplay::GetFromWindow(this);
         const wxRect area = wxDisplay(d == wxNOT_FOUND ? 0u : static_cast<unsigned>(d)).GetClientArea();
@@ -56,10 +65,14 @@ MainFrame::MainFrame()
 
     ctx_.send = [this](const rme::OscMessage& m) { send(m); };
     ctx_.log = [this](const wxString& s) { appendLog(s); };
-    ctx_.announceChange = [this](const wxString& key, const wxString& text) { announcer_.post(key, text); };
+    ctx_.announceChange = [this](const wxString& key, const wxString& text) {
+        // A voice command walks TotalMix FX through pages and channels; only its result is spoken.
+        if (seq_.busy() || nowMs() < voiceQuietUntil_) return;
+        announcer_.post(key, text);
+    };
     ctx_.announceStatus = [this](const wxString& text, bool problem) { announceStatus(text, problem); };
     ctx_.beginQuiet = [this]() { quietUntil_ = nowMs() + kQuietMs; };
-    ctx_.quiet = [this]() { return nowMs() < quietUntil_; };
+    ctx_.quiet = [this]() { return seq_.busy() || nowMs() < quietUntil_; };
 
     splitter_ = new wxSplitterWindow(this, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxSP_LIVE_UPDATE | wxSP_3DSASH);
     splitter_->SetMinimumPaneSize(FromDIP(60));
@@ -90,9 +103,9 @@ MainFrame::MainFrame()
     a11y::setName(log_, "OSC log");
     splitter_->SplitHorizontally(book_, log_, -FromDIP(130));
 
-    CreateStatusBar(3);
-    int widths[] = {-3, -2, -1};
-    SetStatusWidths(3, widths);
+    CreateStatusBar(4);
+    int widths[] = {-3, -2, -1, -2};
+    SetStatusWidths(4, widths);
     buildMenu();
 
     if (!error.empty()) appendLog(error);
@@ -101,11 +114,14 @@ MainFrame::MainFrame()
     appendLog("TotalMix Access ready. TotalMix > OSC Settings (Ctrl+M) sets the connection; Help > Keyboard "
               "Shortcuts (F1) lists the shortcuts.");
     openConnection();
+    updateVoiceStatus();
+    if (settings_.voiceEnabled) CallAfter([this]() { startVoice(); });
     if (firstRun_) CallAfter([this]() { showSettings(); });
 }
 
 MainFrame::~MainFrame() {
     timer_.Stop();
+    voice_.reset();
     // The panels unregister their controls from ctx_ when destroyed, so destroy them while
     // ctx_ still exists.
     splitter_->Destroy();
@@ -137,6 +153,11 @@ void MainFrame::buildMenu() {
     mix->AppendSeparator();
     mix->Append(ID_SpeakLevels, "Speak &Levels\tCtrl+Shift+L");
 
+    auto* voice = new wxMenu;
+    voiceItem_ = voice->AppendCheckItem(ID_VoiceToggle, "&Voice Control\tCtrl+Shift+V");
+    voice->Append(ID_VoiceLearn, "&Learn Channel Names");
+    voice->Append(ID_VoiceSettings, "Voice &Settings...");
+
     auto* view = new wxMenu;
     for (int p = 1; p <= 4; ++p)
         view->Append(ID_Page1 + p - 1, wxString::Format("&%d %s\tCtrl+%d", p, kPageNames[p - 1], p));
@@ -146,12 +167,14 @@ void MainFrame::buildMenu() {
 
     auto* help = new wxMenu;
     help->Append(ID_Shortcuts, "&Keyboard Shortcuts\tF1");
+    help->Append(ID_VoiceCommands, "&Voice Commands");
     help->Append(wxID_ABOUT, "&About");
 
     auto* bar = new wxMenuBar;
     bar->Append(file, "&File");
     bar->Append(tm, "&TotalMix");
     bar->Append(mix, "&Mixer");
+    bar->Append(voice, "V&oice");
     bar->Append(view, "&View");
     bar->Append(help, "&Help");
     SetMenuBar(bar);
@@ -201,6 +224,10 @@ void MainFrame::buildMenu() {
     }, ID_ShowLog);
     Bind(wxEVT_MENU, [this](wxCommandEvent&) { log_->Clear(); }, ID_ClearLog);
     Bind(wxEVT_MENU, [this](wxCommandEvent&) { showShortcuts(); }, ID_Shortcuts);
+    Bind(wxEVT_MENU, [this](wxCommandEvent&) { setVoiceEnabled(!(voice_ && voice_->running())); }, ID_VoiceToggle);
+    Bind(wxEVT_MENU, [this](wxCommandEvent&) { learnChannelNames(); }, ID_VoiceLearn);
+    Bind(wxEVT_MENU, [this](wxCommandEvent&) { showVoiceSettings(); }, ID_VoiceSettings);
+    Bind(wxEVT_MENU, [this](wxCommandEvent&) { showVoiceCommands(); }, ID_VoiceCommands);
     Bind(wxEVT_MENU, [this](wxCommandEvent&) {
         wxAboutDialogInfo info;
         info.SetName(kAppTitle);
@@ -231,7 +258,10 @@ void MainFrame::showShortcuts() {
         "\n"
         "TotalMix FX:\n"
         "  Ctrl+M  OSC settings      Ctrl+K  check connection\n"
-        "  F5  refresh the page      Ctrl+Shift+W  load a Quick Workspace\n",
+        "  F5  refresh the page      Ctrl+Shift+W  load a Quick Workspace\n"
+        "\n"
+        "Voice:\n"
+        "  Ctrl+Shift+V  voice control on / off (Help > Voice Commands lists the commands)\n",
         "Keyboard Shortcuts", wxOK | wxICON_INFORMATION, this);
 }
 
@@ -254,6 +284,10 @@ void MainFrame::ensureMixer() {
 }
 
 void MainFrame::onPageChanged() {
+    if (seq_.busy()) {
+        seq_.cancel();
+        announceStatus("Voice command cancelled", false);
+    }
     // TotalMix FX sends one page at a time; selecting a page makes it re-send that page.
     quietUntil_ = nowMs() + kQuietMs;
     send(rme::OscMessage(rme::pageAddress(currentPage())));
@@ -315,6 +349,7 @@ void MainFrame::send(const rme::OscMessage& m) {
 void MainFrame::dispatch(const rme::OscMessage& m) {
     const bool level = m.address.find("/level") != std::string::npos;
     if (settings_.logIncoming && (!level || settings_.logLevels)) appendLog("< " + wxString::FromUTF8(rme::toString(m)));
+    seq_.onReceive(m);
 
     std::string base;
     const bool isVal = rme::splitValSuffix(m.address, base);
@@ -354,8 +389,205 @@ void MainFrame::onTimer(wxTimerEvent&) {
         case rme::Link::Event::CheckFailed: announceStatus(noReplyMessage(), true); break;
         case rme::Link::Event::None: break;
     }
+    if (const auto done = seq_.tick(now)) {
+        voiceQuietUntil_ = now + kVoiceQuietMs;
+        quietUntil_ = now + kQuietMs;
+        announceStatus(wxString::FromUTF8(done->text), !done->ok);
+        updateVoiceNames();
+    }
+    if (voice_ && voice_->running() && ++voiceNamesTick_ >= 50) {  // about once a second
+        voiceNamesTick_ = 0;
+        updateVoiceNames();
+    }
     if (messages > 0 || !link_.receiving()) updateStatus();
     flushLog();
+}
+
+// ---- Voice control ---------------------------------------------------------------------------
+
+void MainFrame::startVoice() {
+    if (!VoiceInput::available()) {
+        announceStatus("Voice control is only available on Windows so far", true);
+        if (voiceItem_) voiceItem_->Check(false);
+        return;
+    }
+    if (!voice_) {
+        voice_ = std::make_unique<VoiceInput>(this);
+        voice_->onPhrase = [this](const wxString& text, double confidence) { onVoicePhrase(text, confidence); };
+        voice_->onStatus = [this](const wxString& text, bool problem) {
+            announceStatus(text, problem);
+            updateVoiceStatus();
+        };
+    }
+    updateVoiceNames();
+    VoiceInput::Options o;
+    o.wakeWord = settings_.wakeWord;
+    o.deviceName = settings_.voiceDevice;
+    voice_->start(o);
+    updateVoiceStatus();
+}
+
+void MainFrame::stopVoice() {
+    if (voice_) voice_->stop();
+    updateVoiceStatus();
+}
+
+void MainFrame::setVoiceEnabled(bool on) {
+    settings_.voiceEnabled = on;
+    wxString err;
+    if (!SettingsStore::save(settings_, err)) appendLog(err);
+    if (on) {
+        startVoice();
+    } else {
+        stopVoice();
+        announceStatus("Voice control off", false);
+    }
+}
+
+void MainFrame::updateVoiceStatus() {
+    const bool running = voice_ && voice_->running();
+    if (voiceItem_) voiceItem_->Check(running);
+    if (!GetStatusBar()) return;
+    wxString text = "Voice: off";
+    if (running) text = voice_->listening() ? "Voice: " + voice_->deviceName() : wxString("Voice: no headset");
+    SetStatusText(text, 3);
+}
+
+std::vector<rme::voice::NamedChannel> MainFrame::voiceNames() const {
+    std::vector<rme::voice::NamedChannel> out = seq_.learnedNames();
+    const auto bus = static_cast<rme::voice::Bus>(mixer_->row());
+    for (const wxString& n : mixer_->stripNames()) {
+        if (n.empty()) continue;
+        const std::string name = n.ToStdString(wxConvUTF8);
+        bool known = false;
+        for (const auto& o : out) known = known || (o.bus == bus && o.name == name);
+        if (!known) out.push_back({bus, 0, name});
+    }
+    return out;
+}
+
+void MainFrame::updateVoiceNames() {
+    if (!voice_) return;
+    std::vector<std::string> spoken;
+    for (const auto& n : voiceNames()) spoken.push_back(rme::voice::spokenName(n.name));
+    voice_->setChannelNames(spoken);  // rebuilds the grammar only when the list changed
+}
+
+std::optional<rme::voice::ChannelTarget> MainFrame::resolveChannel(const rme::voice::ChannelRef& ch,
+                                                                   wxString& error) const {
+    // A name in the bank shown: select it there, so the mixer bank stays where it is.
+    if (!ch.name.empty() && mixer_->row() == static_cast<int>(ch.bus)) {
+        const wxString name = wxString::FromUTF8(ch.name).Trim().Trim(false);
+        const auto names = mixer_->stripNames();
+        for (size_t k = 0; k < names.size(); ++k)
+            if (names[k] == name) return rme::voice::ChannelTarget{ch.bus, true, static_cast<int>(k)};
+    }
+    if (ch.number > 0) return rme::voice::ChannelTarget{ch.bus, false, ch.number - 1};
+    error = wxString::FromUTF8(ch.name) +
+            " is not in the mixer bank shown. Say its number, or use Voice, Learn Channel Names first.";
+    return std::nullopt;
+}
+
+void MainFrame::onVoicePhrase(const wxString& text, double confidence) {
+    appendLog(wxString::Format("Voice: heard \"%s\" (confidence %.0f%%)", text, confidence * 100.0));
+    if (confidence < settings_.voiceMinConfidence) {
+        appendLog("Voice: ignored, below the minimum confidence");
+        return;
+    }
+    // The grammar's catch-all after the wake word comes back as "...". Ordinary talk often lands
+    // there with modest confidence; only a clear "<wake word> <unknown words>" is worth saying.
+    if (text.Contains("...")) {
+        if (confidence >= 0.9)
+            announceStatus("Voice command not understood", true);
+        else
+            appendLog("Voice: ignored, not a command");
+        return;
+    }
+    const auto cmd = rme::voice::parseVoiceCommand(text.ToStdString(wxConvUTF8), voiceNames(),
+                                                   settings_.wakeWord.ToStdString(wxConvUTF8));
+    if (!cmd) {
+        announceStatus("Voice command not understood: " + text, true);
+        return;
+    }
+    if (cmd->action == rme::voice::Action::StopListening) {
+        // Not from inside the recogniser's callback.
+        CallAfter([this]() { setVoiceEnabled(false); });
+        return;
+    }
+    std::optional<rme::voice::ChannelTarget> target;
+    if (cmd->isChannelAction()) {
+        wxString error;
+        target = resolveChannel(cmd->channel, error);
+        if (!target) {
+            announceStatus(error, true);
+            return;
+        }
+    }
+    // Recognising a test WAV (TOTALMIX_VOICE_TEST_WAV) only logs the command, unless
+    // TOTALMIX_VOICE_TEST_RUN=1: a misrecognised test phrase must not change the mix.
+    wxString testWav, testRun;
+    if (wxGetEnv("TOTALMIX_VOICE_TEST_WAV", &testWav) && !testWav.empty() &&
+        !(wxGetEnv("TOTALMIX_VOICE_TEST_RUN", &testRun) && testRun == "1")) {
+        appendLog("Voice test: would run " + wxString::FromUTF8(rme::voice::describe(*cmd)));
+        return;
+    }
+    std::string err;
+    if (!seq_.start(*cmd, target, currentPage(), nowMs(), err)) {
+        announceStatus(wxString::FromUTF8(err), true);
+        return;
+    }
+    appendLog("Voice: " + wxString::FromUTF8(rme::voice::describe(*cmd)));
+}
+
+void MainFrame::learnChannelNames() {
+    if (!sock_.isOpen() || !sock_.hasDestination()) {
+        announceStatus("Not connected: check TotalMix > OSC Settings", true);
+        return;
+    }
+    std::string err;
+    if (!seq_.startNameScan(currentPage(), nowMs(), err)) {
+        announceStatus(wxString::FromUTF8(err), true);
+        return;
+    }
+    announceStatus("Learning channel names from TotalMix FX. This can take a minute.", false);
+}
+
+void MainFrame::showVoiceSettings() {
+    VoiceSettingsDialog dlg(this, settings_);
+    if (dlg.ShowModal() != wxID_OK) return;
+    settings_ = dlg.result();
+    wxString err;
+    if (!SettingsStore::save(settings_, err)) announceStatus(err, true);
+    if (settings_.voiceEnabled)
+        startVoice();  // restarts with the new wake word and microphone
+    else if (voice_ && voice_->running())
+        setVoiceEnabled(false);
+}
+
+void MainFrame::showVoiceCommands() {
+    const wxString w = settings_.wakeWord;
+    wxMessageBox(
+        "Voice control listens on a headset microphone. Start every command with the wake word, \"" + w +
+            "\".\n"
+            "\n"
+            "  " + w + " snapshot 1 to 8\n"
+            "  " + w + " reverb on / off,  " + w + " echo on / off\n"
+            "  " + w + " undo,  " + w + " redo,  " + w + " stop listening\n"
+            "\n"
+            "Channels: input, playback or output and a number (input 5), or a channel name (vocal).\n"
+            "Names in the bank shown always work; Voice > Learn Channel Names learns the rest.\n"
+            "For a stereo channel, use the number of its left channel.\n"
+            "\n"
+            "  " + w + " input 5 volume minus 10\n"
+            "  " + w + " input 5 volume plus 3   (up to plus 6)\n"
+            "  " + w + " input 5 volume zero / volume off\n"
+            "  " + w + " input 5 volume up 3 / volume down 6   (raising stops at 0 dB)\n"
+            "  " + w + " input 5 mute / unmute\n"
+            "  " + w + " input 5 pan left 30 / pan right 100 / pan center\n"
+            "  " + w + " input 5 effects send minus 12 / effects send off\n"
+            "\n"
+            "Add \"point five\" for half decibels (minus 3 point 5). Each command is confirmed when it is done.",
+        "Voice Commands", wxOK | wxICON_INFORMATION, this);
 }
 
 wxString MainFrame::noReplyMessage() const {

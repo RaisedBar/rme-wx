@@ -21,6 +21,14 @@ struct Settings {
     double announceDebounceSeconds = 0.05;
     static constexpr double kMaxDebounceSeconds = 5.0;
 
+    // Voice control (Windows): listens on a headset microphone for "<wake word> <command>".
+    bool voiceEnabled = false;
+    wxString wakeWord = "TotalMix";
+    // Recognitions with a lower engine confidence (0..1) are ignored.
+    double voiceMinConfidence = 0.5;
+    // A specific microphone by name; empty = any headset.
+    wxString voiceDevice;
+
     bool sameConnection(const Settings& o) const {
         return host == o.host && sendPort == o.sendPort && receivePort == o.receivePort;
     }

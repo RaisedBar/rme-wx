@@ -6,12 +6,18 @@
 #include <wx/wx.h>
 
 #include <cstdint>
+#include <memory>
+#include <optional>
+#include <string>
+#include <vector>
 
 #include "AppContext.h"
 #include "ChangeAnnouncer.h"
+#include "CommandSequencer.h"
 #include "Link.h"
 #include "SettingsStore.h"
 #include "UdpSocket.h"
+#include "VoiceInput.h"
 
 class MixerPanel;
 class PagePanel;
@@ -44,12 +50,31 @@ private:
     void showShortcuts();
     int currentPage() const;
 
+    // Voice control.
+    void startVoice();
+    void stopVoice();
+    void setVoiceEnabled(bool on);
+    void onVoicePhrase(const wxString& text, double confidence);
+    void showVoiceSettings();
+    void showVoiceCommands();
+    void learnChannelNames();
+    // Channel names for the parser: learned ones (with numbers) and the bank shown.
+    std::vector<rme::voice::NamedChannel> voiceNames() const;
+    void updateVoiceNames();
+    std::optional<rme::voice::ChannelTarget> resolveChannel(const rme::voice::ChannelRef& ch, wxString& error) const;
+    void updateVoiceStatus();
+
     AppContext ctx_;
     Settings settings_;
     rme::UdpSocket sock_;
     rme::Link link_;
     ChangeAnnouncer announcer_;
     wxTimer timer_;
+    rme::voice::CommandSequencer seq_;
+    std::unique_ptr<VoiceInput> voice_;
+    wxMenuItem* voiceItem_ = nullptr;
+    int64_t voiceQuietUntil_ = 0;  // no change announcements while a voice command runs
+    int voiceNamesTick_ = 0;
 
     wxSplitterWindow* splitter_ = nullptr;
     wxNotebook* book_ = nullptr;

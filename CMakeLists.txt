@@ -44,6 +44,8 @@ add_library(TotalMixCore STATIC
     src/core/Params.cpp    src/core/Params.h
     src/core/Link.cpp      src/core/Link.h
     src/core/PortCheck.cpp src/core/PortCheck.h
+    src/core/VoiceCommand.cpp     src/core/VoiceCommand.h
+    src/core/CommandSequencer.cpp src/core/CommandSequencer.h
 )
 target_include_directories(TotalMixCore PUBLIC src/core)
 target_compile_options(TotalMixCore PRIVATE ${TM_WARNINGS})
@@ -71,14 +73,17 @@ set(APP_SOURCES
     src/app/OscSettingsDialog.cpp src/app/OscSettingsDialog.h
     src/app/SettingsStore.cpp     src/app/SettingsStore.h
     src/app/ChangeAnnouncer.cpp   src/app/ChangeAnnouncer.h
+    src/app/VoiceSettingsDialog.cpp src/app/VoiceSettingsDialog.h
+    src/app/VoiceInput.h
     src/app/Accessibility.h
 )
 if(WIN32)
-    list(APPEND APP_SOURCES src/app/Accessibility_msw.cpp src/app/Announce_msw.cpp src/app/TotalMixAccess.rc)
+    list(APPEND APP_SOURCES src/app/Accessibility_msw.cpp src/app/Announce_msw.cpp src/app/VoiceInput_msw.cpp
+         src/app/TotalMixAccess.rc)
 elseif(APPLE)
-    list(APPEND APP_SOURCES src/app/Accessibility_mac.mm)
+    list(APPEND APP_SOURCES src/app/Accessibility_mac.mm src/app/VoiceInput_generic.cpp)
 else()
-    list(APPEND APP_SOURCES src/app/Accessibility_generic.cpp)
+    list(APPEND APP_SOURCES src/app/Accessibility_generic.cpp src/app/VoiceInput_generic.cpp)
 endif()
 
 add_executable(TotalMixAccess WIN32 MACOSX_BUNDLE ${APP_SOURCES})
@@ -86,7 +91,7 @@ target_link_libraries(TotalMixAccess PRIVATE TotalMixCore wx::core wx::base wx::
 target_compile_options(TotalMixAccess PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${TM_WARNINGS}>)
 
 if(WIN32)
-    target_link_libraries(TotalMixAccess PRIVATE oleacc uiautomationcore)
+    target_link_libraries(TotalMixAccess PRIVATE oleacc uiautomationcore winmm sapi)
     # The application manifest (DPI awareness, common controls v6) comes from wx/msw/wx.rc.
     target_link_options(TotalMixAccess PRIVATE /MANIFEST:NO)
 elseif(APPLE)

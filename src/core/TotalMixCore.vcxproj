@@ -65,6 +65,8 @@
     <ClCompile Include="Params.cpp" />
     <ClCompile Include="Link.cpp" />
     <ClCompile Include="PortCheck.cpp" />
+    <ClCompile Include="VoiceCommand.cpp" />
+    <ClCompile Include="CommandSequencer.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Osc.h" />
@@ -73,6 +75,8 @@
     <ClInclude Include="Params.h" />
     <ClInclude Include="Link.h" />
     <ClInclude Include="PortCheck.h" />
+    <ClInclude Include="VoiceCommand.h" />
+    <ClInclude Include="CommandSequencer.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>
