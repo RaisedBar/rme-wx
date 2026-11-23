@@ -173,15 +173,18 @@ Help > Voice Commands lists the commands.
   4. sets the value;
   5. returns TotalMix to the page you were on.
 
-  Snapshots, reverb / echo and undo / redo use page 3 the same way. Only the result is spoken, e.g.
-  "Taurus 3 pan center". The page traffic in between is not. A command by number moves the mixer bank
-  to start at that channel.
+  Snapshots, reverb / echo and undo / redo use page 3 the same way. The page traffic in between is not
+  spoken. A command by number moves the mixer bank to start at that channel.
+- **Spoken feedback:** the screen reader says the command as soon as it is heard ("Input 5 pan
+  center"), then the result when it is done ("Taurus 3 pan center", or why it failed). A phrase that
+  starts with the wake word but is not a command gets "Command not recognised". A command heard below
+  the minimum confidence is not run and gets "Command not recognised, please repeat".
 - **FX send:** RME's table gives no curve for the FX send. The app tries values until TotalMix's own
   display string matches the requested dB, within 0.25 dB.
 - **Recognition** uses the Windows SAPI 5 recogniser with a fixed command grammar, offline. It needs
   Windows' English speech recognition (US, UK and other English variants work). Anything else said
-  after the wake word is caught and ignored, rather than forced onto the closest command. Results below
-  the **minimum confidence** (Voice Settings, default 50%) are ignored. Every phrase heard is written to
+  after the wake word is caught and not run, rather than forced onto the closest command. Results below
+  the **minimum confidence** (Voice Settings, default 50%) are not run. Every phrase heard is written to
   the OSC log with its confidence.
 - **Testing without a microphone:** set `TOTALMIX_VOICE_TEST_WAV` to a WAV file before starting the app.
   It then recognises that file instead of a microphone and only logs what it would do. Also set

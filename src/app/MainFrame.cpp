@@ -490,23 +490,26 @@ std::optional<rme::voice::ChannelTarget> MainFrame::resolveChannel(const rme::vo
 
 void MainFrame::onVoicePhrase(const wxString& text, double confidence) {
     appendLog(wxString::Format("Voice: heard \"%s\" (confidence %.0f%%)", text, confidence * 100.0));
-    if (confidence < settings_.voiceMinConfidence) {
-        appendLog("Voice: ignored, below the minimum confidence");
-        return;
-    }
-    // The grammar's catch-all after the wake word comes back as "...". Ordinary talk often lands
-    // there with modest confidence; only a clear "<wake word> <unknown words>" is worth saying.
+    const bool sure = confidence >= settings_.voiceMinConfidence;
+    // The grammar's catch-all after the wake word comes back as "...". Ordinary talk lands there
+    // too, so say so only when the recogniser is reasonably sure it heard the wake word.
     if (text.Contains("...")) {
-        if (confidence >= 0.9)
-            announceStatus("Voice command not understood", true);
+        if (sure)
+            announceStatus("Command not recognised", true);
         else
             appendLog("Voice: ignored, not a command");
+        return;
+    }
+    // A command shape heard without enough confidence: do nothing, but say so, so the user
+    // knows to repeat it rather than waiting.
+    if (!sure) {
+        announceStatus("Command not recognised, please repeat", true);
         return;
     }
     const auto cmd = rme::voice::parseVoiceCommand(text.ToStdString(wxConvUTF8), voiceNames(),
                                                    settings_.wakeWord.ToStdString(wxConvUTF8));
     if (!cmd) {
-        announceStatus("Voice command not understood: " + text, true);
+        announceStatus("Command not recognised: " + text, true);
         return;
     }
     if (cmd->action == rme::voice::Action::StopListening) {
@@ -528,7 +531,7 @@ void MainFrame::onVoicePhrase(const wxString& text, double confidence) {
     wxString testWav, testRun;
     if (wxGetEnv("TOTALMIX_VOICE_TEST_WAV", &testWav) && !testWav.empty() &&
         !(wxGetEnv("TOTALMIX_VOICE_TEST_RUN", &testRun) && testRun == "1")) {
-        appendLog("Voice test: would run " + wxString::FromUTF8(rme::voice::describe(*cmd)));
+        announceStatus("Test, would run: " + wxString::FromUTF8(rme::voice::describe(*cmd)), false);
         return;
     }
     std::string err;
@@ -536,7 +539,9 @@ void MainFrame::onVoicePhrase(const wxString& text, double confidence) {
         announceStatus(wxString::FromUTF8(err), true);
         return;
     }
-    appendLog("Voice: " + wxString::FromUTF8(rme::voice::describe(*cmd)));
+    // Acknowledge at once: a channel outside the bank takes a second or two to reach. The result
+    // is announced when the sequence finishes (onTimer) and replaces this if it is still speaking.
+    announceStatus(wxString::FromUTF8(rme::voice::describe(*cmd)), false);
 }
 
 void MainFrame::learnChannelNames() {

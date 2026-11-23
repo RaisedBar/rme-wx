@@ -48,7 +48,8 @@ VoiceSettingsDialog::VoiceSettingsDialog(wxWindow* parent, const Settings& s)
     confidence_ = new wxSpinCtrl(this, wxID_ANY, "", wxDefaultPosition, wxDefaultSize, wxSP_ARROW_KEYS, 0, 100,
                                  static_cast<int>(s.voiceMinConfidence * 100.0 + 0.5));
     add("Minimum &confidence (percent):", confidence_,
-        "Commands recognised with less confidence are ignored. Raise it if commands are heard that you did not say; "
+        "Commands recognised with less confidence are not run, and you hear \"Command not recognised, please "
+        "repeat\". Raise it if commands are heard that you did not say; "
         "lower it if your commands are ignored.");
 
     auto* note = new wxStaticText(
